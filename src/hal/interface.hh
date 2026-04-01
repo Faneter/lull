@@ -4,7 +4,6 @@
 
 namespace hal
 {
-
     enum class Mode : uint8_t
     {
         Normal,
@@ -19,5 +18,4 @@ namespace hal
         Busy = 0x02,
         Timeout = 0x03
     };
-
 }

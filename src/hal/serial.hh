@@ -95,7 +95,7 @@ namespace hal
             { T::handle() } -> std::same_as<hal::UartHandler>;
         };
 
-        template <hal::serial::HasSerialHandleConcept serial, size_t BufferSize = 128>
+        template <hal::serial::HasSerialHandleConcept serial, Mode mode, size_t BufferSize = 128>
         struct BaseHandler {
             uint8_t buffer[BufferSize];
 
@@ -103,7 +103,7 @@ namespace hal
 
             void start()
             {
-                serial::template receive_idle<hal::Mode::It, BufferSize>(buffer);
+                serial::template receive_idle<mode, BufferSize>(buffer);
             }
 
             void callback(hal::UartHandler huart, uint16_t size)
