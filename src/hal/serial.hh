@@ -108,8 +108,7 @@ namespace hal
         struct BaseHandler {
             uint8_t buffer[BufferSize];
 
-            void (*_on_data_ready)(uint8_t *bytes, uint16_t size) = [](uint8_t *bytes,
-                                                                       uint16_t size) {};
+            void (*_on_data_ready)(uint8_t *bytes, uint16_t size) = nullptr;
 
             void start()
             { serial::template receive_idle<mode, BufferSize>(buffer); }
