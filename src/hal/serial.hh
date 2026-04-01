@@ -21,34 +21,40 @@ namespace hal
 
         // Send
         template <Mode mode>
-        static inline Status send(uint8_t bytes[], uint16_t size, uint32_t timeout = 50)
+        static inline Status send(uint8_t bytes[], uint16_t size,
+                                  uint32_t timeout = 50)
         {
             if constexpr (mode == Mode::Normal)
-                return static_cast<Status>(HAL_UART_Transmit(_handle, bytes, size, timeout));
+                return static_cast<Status>(
+                    HAL_UART_Transmit(_handle, bytes, size, timeout));
             else if constexpr (mode == Mode::It)
                 return static_cast<Status>(HAL_UART_Transmit_IT(_handle, bytes, size));
             else if constexpr (mode == Mode::Dma)
                 return static_cast<Status>(HAL_UART_Transmit_DMA(_handle, bytes, size));
         }
         template <Mode mode, size_t length>
-        static inline Status send(const uint8_t (&bytes)[length], uint32_t timeout = 50)
+        static inline Status send(const uint8_t (&bytes)[length],
+                                  uint32_t timeout = 50)
         {
             return send<mode>(bytes, length, timeout);
         }
 
         // Receive
         template <Mode mode>
-        static inline Status receive(uint8_t bytes[], uint16_t size, uint32_t timeout = 50)
+        static inline Status receive(uint8_t bytes[], uint16_t size,
+                                     uint32_t timeout = 50)
         {
             if constexpr (mode == Mode::Normal)
-                return static_cast<Status>(HAL_UART_Receive(_handle, bytes, size, timeout));
+                return static_cast<Status>(
+                    HAL_UART_Receive(_handle, bytes, size, timeout));
             else if constexpr (mode == Mode::It)
                 return static_cast<Status>(HAL_UART_Receive_IT(_handle, bytes, size));
             else if constexpr (mode == Mode::Dma)
                 return static_cast<Status>(HAL_UART_Receive_DMA(_handle, bytes, size));
         }
         template <Mode mode, size_t length>
-        static inline Status receive(uint8_t (&bytes)[length], uint32_t timeout = 50)
+        static inline Status receive(uint8_t (&bytes)[length],
+                                     uint32_t timeout = 50)
         {
             return receive<mode>(bytes, length, timeout);
         }
@@ -58,9 +64,11 @@ namespace hal
         static inline Status receive_idle(uint8_t bytes[], uint16_t size)
         {
             if constexpr (mode == Mode::It)
-                return static_cast<Status>(HAL_UARTEx_ReceiveToIdle_IT(_handle, bytes, size));
+                return static_cast<Status>(
+                    HAL_UARTEx_ReceiveToIdle_IT(_handle, bytes, size));
             else if constexpr (mode == Mode::Dma)
-                return static_cast<Status>(HAL_UARTEx_ReceiveToIdle_DMA(_handle, bytes, size));
+                return static_cast<Status>(
+                    HAL_UARTEx_ReceiveToIdle_DMA(_handle, bytes, size));
         }
         template <Mode mode, size_t length>
         static inline Status receive_idle(uint8_t (&bytes)[length])
@@ -68,15 +76,16 @@ namespace hal
             return receive_idle<mode>(bytes, length);
         }
 
-        static inline Status receive_idle(
-            uint8_t bytes[], uint16_t &receive_size, uint16_t max_size, uint32_t timeout = 50)
+        static inline Status receive_idle(uint8_t bytes[], uint16_t &receive_size,
+                                          uint16_t max_size, uint32_t timeout = 50)
         {
-            return static_cast<Status>(
-                HAL_UARTEx_ReceiveToIdle(_handle, bytes, max_size, &receive_size, timeout));
+            return static_cast<Status>(HAL_UARTEx_ReceiveToIdle(
+                _handle, bytes, max_size, &receive_size, timeout));
         }
         template <size_t length>
-        static inline Status receive_idle(
-            uint8_t (&bytes)[length], uint16_t &receive_size, uint32_t timeout = 50)
+        static inline Status receive_idle(uint8_t (&bytes)[length],
+                                          uint16_t &receive_size,
+                                          uint32_t timeout = 50)
         {
             return receive_idle(bytes, receive_size, length, timeout);
         }
@@ -92,21 +101,20 @@ namespace hal
     {
         template <typename T>
         concept HasSerialHandleConcept = requires {
-            { T::handle() } -> std::same_as<hal::UartHandler>;
+            { T::handle() } -> std::same_as<UartHandler>;
         };
 
-        template <hal::serial::HasSerialHandleConcept serial, Mode mode, size_t BufferSize = 128>
+        template <HasSerialHandleConcept serial, Mode mode, size_t BufferSize = 128>
         struct BaseHandler {
             uint8_t buffer[BufferSize];
 
-            void (*_on_data_ready)(uint8_t *bytes, uint16_t size) = [](uint8_t *bytes, uint16_t size) {};
+            void (*_on_data_ready)(uint8_t *bytes, uint16_t size) = [](uint8_t *bytes,
+                                                                       uint16_t size) {};
 
             void start()
-            {
-                serial::template receive_idle<mode, BufferSize>(buffer);
-            }
+            { serial::template receive_idle<mode, BufferSize>(buffer); }
 
-            void callback(hal::UartHandler huart, uint16_t size)
+            void callback(UartHandler huart, uint16_t size)
             {
                 if (huart == serial::handle()) {
                     if (size > 0 && _on_data_ready)
@@ -115,53 +123,59 @@ namespace hal
                 }
             }
         };
-    }
+    } // namespace serial
 
     namespace internal
     {
         template <typename Handler>
-        concept SerialStaticCallableConcept = requires(Handler, UartHandler huart, uint16_t size) {
-            { Handler::callback(huart, size) } -> std::same_as<void>;
-        };
+        concept SerialStaticCallableConcept =
+            requires(Handler, UartHandler huart, uint16_t size) {
+                { Handler::callback(huart, size) } -> std::same_as<void>;
+            };
         template <typename Handler>
-        concept SerialNormalCallableConcept = requires(Handler handler, UartHandler huart, uint16_t size) {
-            { handler.callback(huart, size) } -> std::same_as<void>;
-        };
+        concept SerialNormalCallableConcept =
+            requires(Handler handler, UartHandler huart, uint16_t size) {
+                { handler.callback(huart, size) } -> std::same_as<void>;
+            };
         template <typename Handler>
-        concept SerialDirectCallableConcept = requires(Handler handler, UartHandler huart, uint16_t size) {
-            { handler(huart, size) } -> std::same_as<void>;
-        };
+        concept SerialDirectCallableConcept =
+            requires(Handler handler, UartHandler huart, uint16_t size) {
+                { handler(huart, size) } -> std::same_as<void>;
+            };
         template <typename Handlers>
         concept SerialDirectCallableNoArgsConcept = requires(Handlers handler) {
             { handler() } -> std::same_as<void>;
         };
 
-        void call_serial_callback(
-            UartHandler huart, uint16_t size, SerialStaticCallableConcept auto const &handler)
+        void call_serial_callback(UartHandler huart, uint16_t size,
+                                  SerialStaticCallableConcept auto const &handler)
         {
             handler.callback(huart, size);
         }
-        void call_serial_callback(
-            UartHandler huart, uint16_t size, SerialNormalCallableConcept auto &&handlers)
+        void call_serial_callback(UartHandler huart, uint16_t size,
+                                  SerialNormalCallableConcept auto &&handlers)
         {
             handlers.callback(huart, size);
         }
-        void call_serial_callback(
-            UartHandler huart, uint16_t size, SerialDirectCallableConcept auto &&handlers)
+        void call_serial_callback(UartHandler huart, uint16_t size,
+                                  SerialDirectCallableConcept auto &&handlers)
         {
             handlers(huart, size);
         }
-        void call_serial_callback(
-            UartHandler, uint16_t, SerialDirectCallableNoArgsConcept auto &&handlers)
+        void call_serial_callback(UartHandler, uint16_t,
+                                  SerialDirectCallableNoArgsConcept auto &&handlers)
         {
             handlers();
         }
 
-        void execute_serial_callbacks(UartHandler huart, uint16_t size, auto &&...handlers)
+        void execute_serial_callbacks(UartHandler huart, uint16_t size,
+                                      auto &&...handlers)
         {
-            (call_serial_callback(huart, size, std::forward<decltype(handlers)>(handlers)), ...);
+            (call_serial_callback(huart, size,
+                                  std::forward<decltype(handlers)>(handlers)),
+             ...);
         }
-    }
+    } // namespace internal
 
 #define GENERATE_UART_RX_EVENT_CALLBACK(...)                               \
     void HAL_UARTEx_RxEventCallback(hal::UartHandler huart, uint16_t size) \
@@ -174,6 +188,6 @@ namespace hal
         hal::internal::execute_serial_callbacks(huart, 0, __VA_ARGS__); \
     }
 
-}
+} // namespace hal
 
 #endif

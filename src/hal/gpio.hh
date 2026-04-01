@@ -21,18 +21,18 @@ namespace hal
         class GPIO
         {
         public:
-            enum class Status : bool
-            {
-                SET = 0,
+            enum class Status : bool {
+                SET   = 0,
                 RESET = 1
             };
 
-            struct gpio_token
-            {
+            struct gpio_token {
             };
 
-            static inline void set() { pointer()->BSRR = _pin; }
-            static inline void reset() { pointer()->BSRR = (uint32_t)_pin << 16U; }
+            static inline void set()
+            { pointer()->BSRR = _pin; }
+            static inline void reset()
+            { pointer()->BSRR = (uint32_t)_pin << 16U; }
             static inline void toggle()
             {
                 pointer()->BSRR = ((pointer()->ODR & _pin) << 16U) | (~pointer()->ODR & _pin);
@@ -43,7 +43,8 @@ namespace hal
             }
 
         private:
-            static constexpr GPIO_TypeDef *pointer() { return reinterpret_cast<GPIO_TypeDef *>(_port); }
+            static constexpr GPIO_TypeDef *pointer()
+            { return reinterpret_cast<GPIO_TypeDef *>(_port); }
         };
     } // namespace internal
 
@@ -92,9 +93,12 @@ namespace hal
         template <typename GPIO>
         concept GpioConcept = requires { typename GPIO::gpio_token; };
 
-        inline void set(GpioConcept auto &...gpio) { (gpio.set(), ...); }
-        inline void reset(GpioConcept auto &...gpio) { (gpio.reset(), ...); }
-        inline void toggle(GpioConcept auto &...gpio) { (gpio.toggle(), ...); }
+        inline void set(GpioConcept auto &...gpio)
+        { (gpio.set(), ...); }
+        inline void reset(GpioConcept auto &...gpio)
+        { (gpio.reset(), ...); }
+        inline void toggle(GpioConcept auto &...gpio)
+        { (gpio.toggle(), ...); }
     } // namespace gpio
 } // namespace hal
 
