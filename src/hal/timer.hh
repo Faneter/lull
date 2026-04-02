@@ -26,53 +26,55 @@ namespace hal
 
     namespace time
     {
-        template <TIM_HandleTypeDef *_htim>
+        template <TimHandler _handle>
         inline void delay(uint32_t tick)
         {
-            _htim->Instance->CNT = 0;
-            HAL_TIM_Base_Start(_htim);
-            while (_htim->Instance->CNT < tick);
-            HAL_TIM_Base_Stop(_htim);
+            _handle->Instance->CNT = 0;
+            HAL_TIM_Base_Start(_handle);
+            while (_handle->Instance->CNT < tick);
+            HAL_TIM_Base_Stop(_handle);
         }
     }
 
-    template <TIM_HandleTypeDef *_timer>
+    template <TimHandler _handle>
     class Timer
     {
     public:
         using Callback = void (*)(void);
 
+        static constexpr TimHandler handle()
+        { return _handle; }
+
         static inline void start()
-        { HAL_TIM_Base_Start_IT(_timer); }
+        { HAL_TIM_Base_Start_IT(_handle); }
 
         static inline void stop()
-        { HAL_TIM_Base_Stop_IT(_timer); }
-
-        static inline void callback(TIM_HandleTypeDef *htim)
-        {
-            if (htim != _timer) return;
-            for (int index = 0; index < activity_size_; index++) {
-                auto &activity = activities_[index];
-                if (count_tick_ % activity.tick == 0) activity.callback();
-            }
-            count_tick_++;
-        }
-
-        static inline void register_activity(uint16_t tick, Callback callback)
-        {
-            activities_[activity_size_] = {callback, tick};
-            activity_size_++;
-        }
-
-    private:
-        static inline struct {
-            Callback callback;
-            uint16_t tick;
-        } activities_[20];
-
-        static inline uint64_t count_tick_    = 0;
-        static inline uint16_t activity_size_ = 0;
+        { HAL_TIM_Base_Stop_IT(_handle); }
     };
+
+    namespace timer
+    {
+        template <typename T>
+        concept HasTimerHandleConcept = requires {
+            { T::handle() } -> std::same_as<TimHandler>;
+        };
+        template <HasTimerHandleConcept tim, size_t tick = 1>
+        struct BaseHandler {
+            size_t _tick = 0;
+
+            void (*_on_elapsed)() = nullptr;
+
+            void callback(TimHandler htim)
+            {
+                if (htim == tim::handle()) {
+                    if (_on_elapsed && ++_tick >= tick) {
+                        _on_elapsed();
+                        _tick = 0;
+                    }
+                }
+            }
+        };
+    }
 
     namespace internal
     {
