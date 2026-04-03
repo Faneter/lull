@@ -20,7 +20,7 @@ namespace hal
             if (wait < HAL_MAX_DELAY) wait += static_cast<uint32_t>(::uwTickFreq);
             while (::uwTick - start < wait);
         }
-    }
+    } // namespace time
 
 #ifdef HAL_TIM_MODULE_ENABLED
 
@@ -34,7 +34,7 @@ namespace hal
             while (_handle->Instance->CNT < tick);
             HAL_TIM_Base_Stop(_handle);
         }
-    }
+    } // namespace time
 
     template <TimHandler _handle>
     class Timer
@@ -74,11 +74,10 @@ namespace hal
                 }
             }
         };
-    }
+    } // namespace timer
 
     namespace internal
     {
-
         template <typename Handlers>
         concept TimerStaticCallableConcept = requires(Handlers, TimHandler htim) {
             { Handlers::callback(htim) } -> std::same_as<void>;
@@ -117,7 +116,7 @@ namespace hal
         {
             (call_timer_callback(htim, std::forward<decltype(handlers)>(handlers)), ...);
         }
-    }
+    } // namespace internal
 
 #define GENERATE_TIM_PERIOD_ELAPSED_CALLBACK(...)                  \
     void TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)        \
@@ -126,4 +125,4 @@ namespace hal
     }
 
 #endif
-}
+} // namespace hal

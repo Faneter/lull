@@ -16,4 +16,4 @@ namespace hal
         Busy    = 0x02,
         Timeout = 0x03
     };
-}
+} // namespace hal

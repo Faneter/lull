@@ -9,7 +9,6 @@
 
 namespace hal
 {
-
     using UartHandler = UART_HandleTypeDef *;
 
     template <UartHandler _handle>
