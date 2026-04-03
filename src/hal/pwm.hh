@@ -2,6 +2,7 @@
 
 #include "interface.hh"
 #include <cstdint>
+#include <algorithm>
 
 #ifdef HAL_TIM_MODULE_ENABLED
 
@@ -40,32 +41,38 @@ namespace hal
         { return _handle; }
 
         template <Mode mode>
-        static inline void start(uint32_t *buffer = nullptr, uint16_t length = 0)
+        static inline Status start(uint32_t *buffer = nullptr, uint16_t length = 0)
         {
-            if (mode == Mode::Normal)
-                HAL_TIM_PWM_Start(_handle, _channel);
-            else if (mode == Mode::It)
-                HAL_TIM_PWM_Start_IT(_handle, _channel);
-            else if (mode == Mode::Dma)
-                HAL_TIM_PWM_Start_DMA(_handle, _channel, buffer, length);
+            if constexpr (mode == Mode::Normal)
+                return static_cast<Status>(
+                    HAL_TIM_PWM_Start(_handle, _channel));
+            else if constexpr (mode == Mode::It)
+                return static_cast<Status>(
+                    HAL_TIM_PWM_Start_IT(_handle, _channel));
+            else if constexpr (mode == Mode::Dma)
+                return static_cast<Status>(
+                    HAL_TIM_PWM_Start_DMA(_handle, _channel, buffer, length));
         }
 
         template <Mode mode>
-        static inline void stop()
+        static inline Status stop()
         {
-            if (mode == Mode::Normal)
-                HAL_TIM_PWM_Stop(_handle, _channel);
-            else if (mode == Mode::It)
-                HAL_TIM_PWM_Stop_IT(_handle, _channel);
-            else if (mode == Mode::Dma)
-                HAL_TIM_PWM_Stop_DMA(_handle, _channel);
+            if constexpr (mode == Mode::Normal)
+                return static_cast<Status>(
+                    HAL_TIM_PWM_Stop(_handle, _channel));
+            else if constexpr (mode == Mode::It)
+                return static_cast<Status>(
+                    HAL_TIM_PWM_Stop_IT(_handle, _channel));
+            else if constexpr (mode == Mode::Dma)
+                return static_cast<Status>(
+                    HAL_TIM_PWM_Stop_DMA(_handle, _channel));
         }
 
         static inline void set_pwm(uint32_t pwm)
         { compare_register() = pwm; }
 
         static inline void set_ratio(float ratio)
-        { set_pwm(static_cast<uint32_t>(ratio * (_handle->Init.Period))); }
+        { set_pwm(static_cast<uint32_t>(std::clamp(ratio, 0.0f, 1.0f) * (_handle->Init.Period))); }
 
         static inline uint32_t period()
         { return _handle->Init.Period; }
@@ -91,14 +98,14 @@ namespace hal
 
         template <HasPwmHandleConcept P, Mode mode = Mode::It>
         struct BaseHandler {
-            void (*_on_pulse_finished)() = nullptr;
+            void (*_on_pulse_finished)(void (*stop)()) = nullptr;
 
-            void start()
+            virtual void start()
             {
                 P::template start<mode>();
             }
 
-            void stop()
+            static void stop()
             {
                 P::template stop<mode>();
             }
@@ -106,7 +113,7 @@ namespace hal
             void callback(TimHandler htim)
             {
                 if (_on_pulse_finished && htim == P::handle()) {
-                    _on_pulse_finished();
+                    _on_pulse_finished(stop);
                 }
             }
         };
@@ -131,19 +138,19 @@ namespace hal
             { handler() } -> std::same_as<void>;
         };
 
-        void call_pwm_callback(TimHandler htim, TimerStaticCallableConcept auto const &handler)
+        void call_pwm_callback(TimHandler htim, PwmStaticCallableConcept auto const &handler)
         {
             handler.callback(htim);
         }
-        void call_pwm_callback(TimHandler htim, TimerNormalCallableConcept auto &&handler)
+        void call_pwm_callback(TimHandler htim, PwmNormalCallableConcept auto &&handler)
         {
             handler.callback(htim);
         }
-        void call_pwm_callback(TimHandler htim, TimerDirectCallableConcept auto &&handler)
+        void call_pwm_callback(TimHandler htim, PwmDirectCallableConcept auto &&handler)
         {
             handler(htim);
         }
-        void call_pwm_callback(TimHandler, TimerDirectCallableNoArgsConcept auto &&handler)
+        void call_pwm_callback(TimHandler, PwmDirectCallableNoArgsConcept auto &&handler)
         {
             handler();
         }
