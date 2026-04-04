@@ -27,9 +27,11 @@ namespace hal
                 return static_cast<Status>(
                     HAL_UART_Transmit(_handle, bytes, size, timeout));
             else if constexpr (mode == Mode::It)
-                return static_cast<Status>(HAL_UART_Transmit_IT(_handle, bytes, size));
+                return static_cast<Status>(
+                    HAL_UART_Transmit_IT(_handle, bytes, size));
             else if constexpr (mode == Mode::Dma)
-                return static_cast<Status>(HAL_UART_Transmit_DMA(_handle, bytes, size));
+                return static_cast<Status>(
+                    HAL_UART_Transmit_DMA(_handle, bytes, size));
         }
         template <Mode mode, size_t length>
         static inline Status send(const uint8_t (&bytes)[length],

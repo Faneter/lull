@@ -23,20 +23,19 @@ namespace bsp
         class MPU6050
         {
         public:
-            inline IMURawData RawData()
-            {
-                return raw_data;
-            }
-
-            inline IMUData Data()
-            {
-                return data;
-            }
-
-            inline hal::i2c::I2CTransaction i2c_transaction()
-            {
-                return transaction;
-            }
+            IMURawData raw_data;
+            IMUData data;
+            IMUData offset_data                  = {};
+            hal::i2c::I2CTransaction transaction = {
+                .type          = hal::i2c::TransactionType::ReadMem,
+                .dev_addr      = static_cast<uint16_t>(MPU6050Reg::ADDRESS),
+                .mem_addr      = static_cast<uint16_t>(MPU6050Reg::ACCEL_XOUT_H),
+                .mem_addr_size = 1,
+                .data_ptr      = buffer,
+                .size          = 14,
+                .context       = this,
+                .user_callback = transaction_callback,
+            };
 
             hal::Status init()
             {
@@ -77,18 +76,13 @@ namespace bsp
 
             void update()
             {
-                data.accel.x     = static_cast<float>(raw_data.accel.x) / 16384.0f - _offset_data.accel.x;
-                data.accel.y     = static_cast<float>(raw_data.accel.y) / 16384.0f - _offset_data.accel.y;
-                data.accel.z     = static_cast<float>(raw_data.accel.z) / 16384.0f - _offset_data.accel.z;
-                data.gyro.x      = static_cast<float>(raw_data.gyro.x) / 131.0f - _offset_data.gyro.x;
-                data.gyro.y      = static_cast<float>(raw_data.gyro.y) / 131.0f - _offset_data.gyro.y;
-                data.gyro.z      = static_cast<float>(raw_data.gyro.z) / 131.0f - _offset_data.gyro.z;
+                data.accel.x     = static_cast<float>(raw_data.accel.x) / 16384.0f - offset_data.accel.x;
+                data.accel.y     = static_cast<float>(raw_data.accel.y) / 16384.0f - offset_data.accel.y;
+                data.accel.z     = static_cast<float>(raw_data.accel.z) / 16384.0f - offset_data.accel.z;
+                data.gyro.x      = static_cast<float>(raw_data.gyro.x) / 131.0f - offset_data.gyro.x;
+                data.gyro.y      = static_cast<float>(raw_data.gyro.y) / 131.0f - offset_data.gyro.y;
+                data.gyro.z      = static_cast<float>(raw_data.gyro.z) / 131.0f - offset_data.gyro.z;
                 data.temperature = (static_cast<float>(raw_data.temperature) / 340.0) + 36.53;
-            }
-
-            void set_offset(IMUData offset)
-            {
-                _offset_data = offset;
             }
 
             bool has_new_data()
@@ -101,20 +95,8 @@ namespace bsp
             }
 
         private:
-            IMURawData raw_data;
-            IMUData data;
-            IMUData _offset_data = {};
             uint8_t buffer[14];
-            hal::i2c::I2CTransaction transaction = {
-                .type          = hal::i2c::TransactionType::ReadMem,
-                .dev_addr      = static_cast<uint16_t>(MPU6050Reg::ADDRESS),
-                .mem_addr      = static_cast<uint16_t>(MPU6050Reg::ACCEL_XOUT_H),
-                .mem_addr_size = 1,
-                .data_ptr      = buffer,
-                .size          = 14,
-                .context       = this,
-                .user_callback = transaction_callback,
-            };
+
             volatile bool _new_data_flag = false;
 
             static void transaction_callback(hal::i2c::I2CTransaction *transaction)
