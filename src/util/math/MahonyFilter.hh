@@ -15,9 +15,8 @@ namespace util::math
          * @param kp 比例增益，决定加速度计修正权重
          * @param ki 积分增益，决定消除偏移的速度
          */
-        MahonyFilter(float sample_freq = 1000.0f, float kp = 0.5f, float ki = 0.0f)
+        MahonyFilter(float kp = 0.5f, float ki = 0.0f)
         {
-            _mahony.begin(sample_freq);
             // 注意：原库中 twoKpDef 等是宏，如果需要动态改，
             // 建议修改 MahonyAHRS.h 暴露 setGains 接口，或者直接在封装里处理
         }
@@ -26,18 +25,19 @@ namespace util::math
          * @brief 输入 IMU 物理量并更新姿态
          * @param imu 已经过 update() 转换和 Offset 修正的物理量数据
          */
-        void update(const bsp::imu::IMUData &imu)
+        void update(const bsp::imu::IMUData &imu, float dt)
         {
             // 1. 单位转换：Mahony 算法必须使用弧度制 rad/s
-            constexpr float deg2rad = std::numbers::pi_v<float> / 180.0f;
+            // constexpr float deg2rad = std::numbers::pi_v<float> / 180.0f;
 
-            float gx = imu.gyro.x * deg2rad;
-            float gy = imu.gyro.y * deg2rad;
-            float gz = imu.gyro.z * deg2rad;
+            // float gx = imu.gyro.x * deg2rad;
+            // float gy = imu.gyro.y * deg2rad;
+            // float gz = imu.gyro.z * deg2rad;
 
             // 2. 核心更新逻辑 (6轴模式)
             // 注意：如果加速度计 G 值单位不是 m/s^2 而是 g，算法同样适用（内部会单位化）
-            _mahony.updateIMU(gx, gy, gz, imu.accel.x, imu.accel.y, imu.accel.z);
+            _mahony.set_dt(dt);
+            _mahony.updateIMU(imu.gyro.x, imu.gyro.y, imu.gyro.z, imu.accel.x, imu.accel.y, imu.accel.z);
         }
 
         /**

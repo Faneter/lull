@@ -208,6 +208,11 @@ namespace hal
             { h.callback_rx(hi2c) } -> std::same_as<void>;
         };
 
+        template <typename Handler>
+        concept I2CErrorCallableConcept = requires(Handler h, I2CHandler hi2c) {
+            { h.callback_error(hi2c) } -> std::same_as<void>;
+        };
+
         void execute_i2c_tx_callbacks(I2CHandler hi2c, auto &&...handlers)
         {
             (handlers.callback_tx(hi2c), ...);
@@ -216,6 +221,11 @@ namespace hal
         void execute_i2c_rx_callbacks(I2CHandler hi2c, auto &&...handlers)
         {
             (handlers.callback_rx(hi2c), ...);
+        }
+
+        void execute_i2c_error_callbacks(I2CHandler hi2c, auto &&...handlers)
+        {
+            (handlers.callback_error(hi2c), ...);
         }
     } // namespace internal
 
@@ -244,6 +254,11 @@ namespace hal
         hal::internal::execute_i2c_rx_callbacks(hi2c, __VA_ARGS__); \
     }
 
+#define GENERATE_I2C_ERROR_CALLBACK(...)                               \
+    void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c)                \
+    {                                                                  \
+        hal::internal::execute_i2c_error_callbacks(hi2c, __VA_ARGS__); \
+    }
 } // namespace hal
 
 #endif
