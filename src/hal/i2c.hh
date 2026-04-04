@@ -122,11 +122,14 @@ namespace hal
                     status = i2c_bus::template read_mem<Mode::Normal>(transaction.dev_addr, transaction.mem_addr,
                                                                       transaction.mem_addr_size, transaction.data_ptr,
                                                                       transaction.size);
+
                     transaction.user_callback(&transaction);
                 } else if (transaction.type == TransactionType::Receive) {
                     status = i2c_bus::template receive<Mode::Normal>(transaction.dev_addr, transaction.data_ptr, transaction.size);
+
                     transaction.user_callback(&transaction);
                 }
+
                 return status;
             }
 
@@ -141,15 +144,23 @@ namespace hal
                 if (is_rx_busy || rx_queue.empty())
                     return Status::Busy;
 
+                auto status = Status::Ready;
+
                 I2CTransaction &task = rx_queue.front();
                 is_rx_busy           = true;
 
                 if (task.type == TransactionType::ReadMem)
-                    return i2c_bus::template read_mem<mode>(task.dev_addr, task.mem_addr, task.mem_addr_size, task.data_ptr, task.size);
+                    status = i2c_bus::template read_mem<mode>(task.dev_addr, task.mem_addr, task.mem_addr_size, task.data_ptr, task.size);
                 else if (task.type == TransactionType::Receive)
-                    return i2c_bus::template receive<mode>(task.dev_addr, task.data_ptr, task.size);
+                    status = i2c_bus::template receive<mode>(task.dev_addr, task.data_ptr, task.size);
 
-                return Status::Error;
+                if (status != Status::Ready) {
+                    is_rx_busy = false;
+                    rx_queue.pop();
+                    rx_schedule_next();
+                }
+
+                return status;
             }
 
             void callback_tx(I2CHandler hi2c)
@@ -163,7 +174,7 @@ namespace hal
             {
                 if (hi2c != i2c_bus::handle()) return;
 
-                I2CTransaction task = rx_queue.front(); // 任务完成
+                I2CTransaction &task = rx_queue.front(); // 任务完成
                 rx_queue.pop();
 
                 is_rx_busy = false;

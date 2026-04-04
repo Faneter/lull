@@ -81,14 +81,23 @@ namespace bsp
                 data.accel.y     = static_cast<float>(raw_data.accel.y) / 16384.0f - _offset_data.accel.y;
                 data.accel.z     = static_cast<float>(raw_data.accel.z) / 16384.0f - _offset_data.accel.z;
                 data.gyro.x      = static_cast<float>(raw_data.gyro.x) / 131.0f - _offset_data.gyro.x;
-                data.gyro.y      = static_cast<float>(raw_data.gyro.x) / 131.0f - _offset_data.gyro.y;
-                data.gyro.z      = static_cast<float>(raw_data.gyro.x) / 131.0f - _offset_data.gyro.z;
+                data.gyro.y      = static_cast<float>(raw_data.gyro.y) / 131.0f - _offset_data.gyro.y;
+                data.gyro.z      = static_cast<float>(raw_data.gyro.z) / 131.0f - _offset_data.gyro.z;
                 data.temperature = (static_cast<float>(raw_data.temperature) / 340.0) + 36.53;
             }
 
             void set_offset(IMUData offset)
             {
                 _offset_data = offset;
+            }
+
+            bool has_new_data()
+            {
+                if (_new_data_flag) {
+                    _new_data_flag = false;
+                    return true;
+                }
+                return false;
             }
 
         private:
@@ -106,6 +115,7 @@ namespace bsp
                 .context       = this,
                 .user_callback = transaction_callback,
             };
+            volatile bool _new_data_flag = false;
 
             static void transaction_callback(hal::i2c::I2CTransaction *transaction)
             {
@@ -117,6 +127,8 @@ namespace bsp
                 instance->raw_data.gyro.x      = (int16_t)(transaction->data_ptr[8] << 8 | transaction->data_ptr[9]);
                 instance->raw_data.gyro.y      = (int16_t)(transaction->data_ptr[10] << 8 | transaction->data_ptr[11]);
                 instance->raw_data.gyro.z      = (int16_t)(transaction->data_ptr[12] << 8 | transaction->data_ptr[13]);
+
+                instance->_new_data_flag = true;
             }
         };
     } // namespace imu
