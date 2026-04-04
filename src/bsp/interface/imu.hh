@@ -1,6 +1,6 @@
 #pragma once
 
-#include "interface.hh"
+#include "hal/interface.hh"
 
 namespace bsp
 {

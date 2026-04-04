@@ -1,8 +1,8 @@
 #pragma once
 
-#include <i2c.hh>
+#include "hal/i2c.hh"
 
-#include "interface/imu.hh"
+#include "bsp/interface/imu.hh"
 
 namespace bsp
 {
