@@ -92,6 +92,10 @@ namespace bsp::screen
 
         /**
          * @brief 在缓冲区指定位置画点
+         *
+         * @param x 水平坐标，范围 [0, Width-1]
+         * @param y 垂直坐标，范围 [0, Height-1]
+         * @param color 颜色，true 为点亮，false 为熄灭
          */
         void draw_pixel(int16_t x, int16_t y, bool color)
         {
@@ -104,28 +108,6 @@ namespace bsp::screen
                 buffer[x + (y / 8) * Width] |= (1 << (y % 8));
             } else {
                 buffer[x + (y / 8) * Width] &= ~(1 << (y % 8));
-            }
-        }
-
-        /**
-         * @brief 将位图写入缓冲区
-         * @param x, y 起始坐标
-         * @param w, h 位图宽高
-         * @param bitmap 位图数组
-         */
-        void draw_bitmap(int16_t x, int16_t y, int16_t w, int16_t h, const uint8_t *bitmap)
-        {
-            // 计算输入位图每行占用的字节数（处理非 8 倍数宽度）
-            int16_t byteWidth = (w + 7) / 8;
-
-            for (int16_t j = 0; j < h; j++) {
-                for (int16_t i = 0; i < w; i++) {
-                    // 检查输入位图在 (i, j) 处的像素是否为 1
-                    // 假设输入位图是常见的水平扫描（如 Image2Lcd 生成的格式）
-                    if (bitmap[j * byteWidth + (i / 8)] & (0x80 >> (i % 8))) {
-                        draw_pixel(x + i, y + j, true);
-                    }
-                }
             }
         }
 
@@ -142,11 +124,21 @@ namespace bsp::screen
             .user_callback = [](hal::i2c::I2CTransaction *transaction) {},
         };
 
+        /**
+         * @brief 向 OLED 发送命令
+         *
+         * @param command 命令字节
+         */
         void write_command(uint8_t command)
         {
             i2c_bus::template write_mem<hal::Mode::Normal>(Address, 0x00, 1, &command, 1);
         }
 
+        /**
+         * @brief 开关 OLED 显示
+         *
+         * @param state 显示状态，true 为开，false 为关
+         */
         void switch_oled(bool state)
         {
             if (state) {
@@ -234,6 +226,11 @@ namespace bsp::screen
             write_command(upper);
         }
 
+        /**
+         * @brief 是否翻转显示（即左右和上下翻转）
+         *
+         * @param enable 翻转使能，true 为翻转，false 为正常
+         */
         void flip(bool enable)
         {
             if (enable) {
