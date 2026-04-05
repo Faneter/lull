@@ -25,22 +25,21 @@ namespace bsp::screen
         WrapCoord
     };
 
-    template <typename i2c_bus, size_t Address, size_t Width, size_t Height>
+    template <typename i2c_bus>
         requires hal::i2c::HasI2CHandleConcept<i2c_bus>
     class SSD1306
     {
     public:
-        static inline constexpr size_t Buffer_Size = Width * Height / 8;
+        static inline constexpr uint16_t Address     = (0x3C << 1);
+        static inline constexpr uint16_t Width       = 128;
+        static inline constexpr uint16_t Height      = 64;
+        static inline constexpr uint16_t Buffer_Size = Width * Height / 8;
 
         hal::i2c::I2CTransaction transaction()
         {
             setColumnAddressScope(0, Width - 1);
             setPageAddressScope(0, (Height / 8) - 1);
             return _transaction;
-        }
-
-        SSD1306()
-        {
         }
 
         void init()
@@ -52,7 +51,7 @@ namespace bsp::screen
             setPageAddressScope(0, (Height / 8) - 1); // 0 到 7 (针对 64 线屏幕)
 
             i2c_bus::template write_mem<hal::Mode::Normal>(
-                static_cast<uint16_t>(Address << 1),
+                Address,
                 0x40, // 数据寄存器
                 1,
                 buffer,
@@ -130,44 +129,11 @@ namespace bsp::screen
             }
         }
 
-        /**
-         * @brief 显示单个字符 (适配 6x8 字库)
-         */
-        void draw_char(int16_t x, int16_t y, char c, bool color)
-        {
-            if (c < 32 || c > 126) return; // 过滤非打印字符
-
-            uint8_t index = c;
-
-            // 遍历字符的 6 列
-            for (uint8_t i = 0; i < 6; i++) {
-                uint8_t column_data = font6x8_ascii[index][i];
-                // 遍历每一列的 8 个像素 (从下往上或从上往下，由字库决定)
-                for (uint8_t j = 0; j < 8; j++) {
-                    if (column_data & (1 << j)) {
-                        draw_pixel(x + i, y + j, color);
-                    }
-                }
-            }
-        }
-
-        /**
-         * @brief 显示字符串
-         */
-        void draw_string(int16_t x, int16_t y, const char *str, bool color)
-        {
-            while (*str) {
-                draw_char(x, y, *str++, color);
-                x += 6;                    // 字符宽度为 6
-                if (x + 6 >= Width) break; // 简单的边界检查
-            }
-        }
-
     private:
         uint8_t buffer[Buffer_Size];
         hal::i2c::I2CTransaction _transaction = {
             .type          = hal::i2c::TransactionType::WriteMem,
-            .dev_addr      = static_cast<uint16_t>(Address << 1),
+            .dev_addr      = Address,
             .mem_addr      = 0x40,
             .mem_addr_size = 1,
             .data_ptr      = buffer,
@@ -178,7 +144,7 @@ namespace bsp::screen
 
         void write_command(uint8_t command)
         {
-            i2c_bus::template write_mem<hal::Mode::Normal>(static_cast<uint16_t>(Address << 1), 0x00, 1, &command, 1);
+            i2c_bus::template write_mem<hal::Mode::Normal>(Address, 0x00, 1, &command, 1);
         }
 
         void switch_oled(bool state)
