@@ -107,14 +107,14 @@ namespace hal
          */
         template <HasI2CHandleConcept i2c_bus, Mode mode>
         struct BaseHandler {
-            etl::queue<I2CTransaction, 8> rx_queue;
-            bool is_rx_busy = false;
+            etl::queue<I2CTransaction, 8> queue;
+            bool is_busy = false;
 
             void (*_on_tx_complete)()              = nullptr;
             void (*_on_rx_complete)()              = nullptr;
             void (*_on_error)(uint32_t error_code) = nullptr;
 
-            Status read(I2CTransaction transaction)
+            Status execute(I2CTransaction transaction)
             {
                 auto status = Status::Ready;
 
@@ -122,42 +122,52 @@ namespace hal
                     status = i2c_bus::template read_mem<Mode::Normal>(transaction.dev_addr, transaction.mem_addr,
                                                                       transaction.mem_addr_size, transaction.data_ptr,
                                                                       transaction.size);
-
                     transaction.user_callback(&transaction);
                 } else if (transaction.type == TransactionType::Receive) {
                     status = i2c_bus::template receive<Mode::Normal>(transaction.dev_addr, transaction.data_ptr, transaction.size);
-
+                    transaction.user_callback(&transaction);
+                } else if (transaction.type == TransactionType::WriteMem) {
+                    status = i2c_bus::template write_mem<Mode::Normal>(transaction.dev_addr, transaction.mem_addr,
+                                                                       transaction.mem_addr_size, transaction.data_ptr,
+                                                                       transaction.size);
+                    transaction.user_callback(&transaction);
+                } else if (transaction.type == TransactionType::Transmit) {
+                    status = i2c_bus::template transmit<Mode::Normal>(transaction.dev_addr, transaction.data_ptr, transaction.size);
                     transaction.user_callback(&transaction);
                 }
 
                 return status;
             }
 
-            void async_read(I2CTransaction transaction)
+            void async_execute(I2CTransaction transaction)
             {
-                rx_queue.push(transaction);
-                rx_schedule_next(); // 尝试启动
+                queue.push(transaction);
+                schedule_next(); // 尝试启动
             }
 
-            Status rx_schedule_next()
+            Status schedule_next()
             {
-                if (is_rx_busy || rx_queue.empty())
+                if (is_busy || queue.empty())
                     return Status::Busy;
 
                 auto status = Status::Ready;
 
-                I2CTransaction &task = rx_queue.front();
-                is_rx_busy           = true;
+                I2CTransaction &task = queue.front();
+                is_busy              = true;
 
                 if (task.type == TransactionType::ReadMem)
                     status = i2c_bus::template read_mem<mode>(task.dev_addr, task.mem_addr, task.mem_addr_size, task.data_ptr, task.size);
                 else if (task.type == TransactionType::Receive)
                     status = i2c_bus::template receive<mode>(task.dev_addr, task.data_ptr, task.size);
+                else if (task.type == TransactionType::WriteMem)
+                    status = i2c_bus::template write_mem<mode>(task.dev_addr, task.mem_addr, task.mem_addr_size, task.data_ptr, task.size);
+                else if (task.type == TransactionType::Transmit)
+                    status = i2c_bus::template transmit<mode>(task.dev_addr, task.data_ptr, task.size);
 
                 if (status != Status::Ready) {
-                    is_rx_busy = false;
-                    rx_queue.pop();
-                    rx_schedule_next();
+                    is_busy = false;
+                    queue.pop();
+                    schedule_next();
                 }
 
                 return status;
@@ -165,19 +175,31 @@ namespace hal
 
             void callback_tx(I2CHandler hi2c)
             {
-                if (hi2c == i2c_bus::handle() && _on_tx_complete) {
+                if (hi2c != i2c_bus::handle()) return;
+
+                I2CTransaction &task = queue.front(); // 任务完成
+                queue.pop();
+
+                is_busy = false;
+
+                // 向你的 component 层分发数据
+                if (task.user_callback)
+                    task.user_callback(&task);
+                if (_on_tx_complete)
                     _on_tx_complete();
-                }
+
+                // 继续下一个任务
+                schedule_next();
             }
 
             void callback_rx(I2CHandler hi2c)
             {
                 if (hi2c != i2c_bus::handle()) return;
 
-                I2CTransaction &task = rx_queue.front(); // 任务完成
-                rx_queue.pop();
+                I2CTransaction &task = queue.front(); // 任务完成
+                queue.pop();
 
-                is_rx_busy = false;
+                is_busy = false;
 
                 // 向你的 component 层分发数据
                 if (task.user_callback)
@@ -187,7 +209,7 @@ namespace hal
                     _on_rx_complete();
 
                 // 继续下一个任务
-                rx_schedule_next();
+                schedule_next();
             }
 
             void callback_error(I2CHandler hi2c)
