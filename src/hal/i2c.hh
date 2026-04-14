@@ -98,7 +98,15 @@ namespace hal
             uint8_t *data_ptr; // 数据指针
             uint16_t size;
             void *context;
-            void (*user_callback)(I2CTransaction *); // 执行完后的回调
+            void (*user_callback)(I2CTransaction *) = nullptr; // 执行完后的回调
+        };
+
+        struct AbstractHandler {
+            virtual Status execute(I2CTransaction transaction)     = 0;
+            virtual void async_execute(I2CTransaction transaction) = 0;
+            virtual void callback_tx(I2CHandler hi2c)              = 0;
+            virtual void callback_rx(I2CHandler hi2c)              = 0;
+            virtual void callback_error(I2CHandler hi2c)           = 0;
         };
 
         /**
@@ -106,7 +114,7 @@ namespace hal
          * 用于处理传输完成后的逻辑（主要用于 DMA 和 IT 模式）
          */
         template <HasI2CHandleConcept i2c_bus, Mode mode>
-        struct BaseHandler {
+        struct BaseHandler : AbstractHandler {
             etl::queue<I2CTransaction, 8> queue;
             bool is_busy = false;
 
@@ -114,7 +122,7 @@ namespace hal
             void (*_on_rx_complete)()              = nullptr;
             void (*_on_error)(uint32_t error_code) = nullptr;
 
-            Status execute(I2CTransaction transaction)
+            Status execute(I2CTransaction transaction) override
             {
                 auto status = Status::Ready;
 
@@ -122,24 +130,23 @@ namespace hal
                     status = i2c_bus::template read_mem<Mode::Normal>(transaction.dev_addr, transaction.mem_addr,
                                                                       transaction.mem_addr_size, transaction.data_ptr,
                                                                       transaction.size);
-                    transaction.user_callback(&transaction);
                 } else if (transaction.type == TransactionType::Receive) {
                     status = i2c_bus::template receive<Mode::Normal>(transaction.dev_addr, transaction.data_ptr, transaction.size);
-                    transaction.user_callback(&transaction);
                 } else if (transaction.type == TransactionType::WriteMem) {
                     status = i2c_bus::template write_mem<Mode::Normal>(transaction.dev_addr, transaction.mem_addr,
                                                                        transaction.mem_addr_size, transaction.data_ptr,
                                                                        transaction.size);
-                    transaction.user_callback(&transaction);
                 } else if (transaction.type == TransactionType::Transmit) {
                     status = i2c_bus::template transmit<Mode::Normal>(transaction.dev_addr, transaction.data_ptr, transaction.size);
-                    transaction.user_callback(&transaction);
                 }
+
+                if (transaction.user_callback)
+                    transaction.user_callback(&transaction);
 
                 return status;
             }
 
-            void async_execute(I2CTransaction transaction)
+            void async_execute(I2CTransaction transaction) override
             {
                 queue.push(transaction);
                 schedule_next(); // 尝试启动
@@ -173,7 +180,7 @@ namespace hal
                 return status;
             }
 
-            void callback_tx(I2CHandler hi2c)
+            void callback_tx(I2CHandler hi2c) override
             {
                 if (hi2c != i2c_bus::handle()) return;
 
@@ -192,7 +199,7 @@ namespace hal
                 schedule_next();
             }
 
-            void callback_rx(I2CHandler hi2c)
+            void callback_rx(I2CHandler hi2c) override
             {
                 if (hi2c != i2c_bus::handle()) return;
 
@@ -212,7 +219,7 @@ namespace hal
                 schedule_next();
             }
 
-            void callback_error(I2CHandler hi2c)
+            void callback_error(I2CHandler hi2c) override
             {
                 if (hi2c == i2c_bus::handle() && _on_error) {
                     _on_error(HAL_I2C_GetError(hi2c));

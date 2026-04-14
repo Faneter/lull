@@ -8,7 +8,7 @@ namespace bsp
 {
     namespace imu
     {
-        enum class MPU6050Reg : uint8_t {
+        enum MPU6050Reg : uint8_t {
             ADDRESS      = (0x68 << 1),
             WHO_AM_I     = 0x75,
             PWR_MGMT_1   = 0x6B,
@@ -18,14 +18,11 @@ namespace bsp
             GYRO_XOUT_H  = 0x43,
         };
 
-        template <typename i2c_bus>
-            requires hal::i2c::HasI2CHandleConcept<i2c_bus>
         class MPU6050
         {
         public:
-            hal::i2c::I2CTransaction transaction()
+            MPU6050(hal::i2c::AbstractHandler &handler) : i2cHandler(handler)
             {
-                return _transaction;
             }
 
             IMUData data()
@@ -45,50 +42,60 @@ namespace bsp
 
             hal::Status init()
             {
+                auto status = hal::Status::Error;
+
                 uint8_t check = 0;
                 uint8_t data;
-                i2c_bus::template read_mem<hal::Mode::Normal>(
-                    static_cast<uint16_t>(MPU6050Reg::ADDRESS),
-                    static_cast<uint16_t>(MPU6050Reg::WHO_AM_I),
-                    1, &check, 1, 1000);
+                status = i2cHandler.execute(hal::i2c::I2CTransaction{
+                    .type          = hal::i2c::TransactionType::ReadMem,
+                    .dev_addr      = ADDRESS,
+                    .mem_addr      = WHO_AM_I,
+                    .mem_addr_size = 1,
+                    .data_ptr      = &check,
+                    .size          = 1,
+                });
 
                 if (check == 0x68) {
                     // 唤醒传感器：将 PWR_MGMT_1 的 SLEEP 位（第6位）清零
-                    data = 0;
-                    i2c_bus::template write_mem<hal::Mode::Normal>(
-                        static_cast<uint16_t>(MPU6050Reg::ADDRESS),
-                        static_cast<uint16_t>(MPU6050Reg::PWR_MGMT_1),
-                        1, &data, 1, 1000);
+                    data   = 0;
+                    status = i2cHandler.execute(hal::i2c::I2CTransaction{
+                        .type          = hal::i2c::TransactionType::WriteMem,
+                        .dev_addr      = ADDRESS,
+                        .mem_addr      = PWR_MGMT_1,
+                        .mem_addr_size = 1,
+                        .data_ptr      = &data,
+                        .size          = 1,
+                    });
 
                     // 配置陀螺仪量程 (默认 ±250°/s)
-                    data = 0x00; // FS_SEL = 0
-                    i2c_bus::template write_mem<hal::Mode::Normal>(
-                        static_cast<uint16_t>(MPU6050Reg::ADDRESS),
-                        static_cast<uint16_t>(MPU6050Reg::GYRO_CONFIG),
-                        1, &data, 1, 1000);
+                    data   = 0x00; // FS_SEL = 0
+                    status = i2cHandler.execute(hal::i2c::I2CTransaction{
+                        .type          = hal::i2c::TransactionType::WriteMem,
+                        .dev_addr      = ADDRESS,
+                        .mem_addr      = GYRO_CONFIG,
+                        .mem_addr_size = 1,
+                        .data_ptr      = &data,
+                        .size          = 1,
+                    });
 
                     // 配置加速度计量程 (默认 ±2g)
-                    data = 0x00; // AFS_SEL = 0
-                    i2c_bus::template write_mem<hal::Mode::Normal>(
-                        static_cast<uint16_t>(MPU6050Reg::ADDRESS),
-                        static_cast<uint16_t>(MPU6050Reg::ACCEL_CONFIG),
-                        1, &data, 1, 1000);
-
-                    return hal::Status::Ready;
-                } else {
-                    return hal::Status::Error;
+                    data   = 0x00; // AFS_SEL = 0
+                    status = i2cHandler.execute(hal::i2c::I2CTransaction{
+                        .type          = hal::i2c::TransactionType::WriteMem,
+                        .dev_addr      = ADDRESS,
+                        .mem_addr      = ACCEL_CONFIG,
+                        .mem_addr_size = 1,
+                        .data_ptr      = &data,
+                        .size          = 1,
+                    });
                 }
+
+                return status;
             }
 
             void update()
             {
-                _data.accel.x     = static_cast<float>(_raw_data.accel.x) / 16384.0f - _offset_data.accel.x;
-                _data.accel.y     = static_cast<float>(_raw_data.accel.y) / 16384.0f - _offset_data.accel.y;
-                _data.accel.z     = static_cast<float>(_raw_data.accel.z) / 16384.0f - _offset_data.accel.z;
-                _data.gyro.x      = static_cast<float>(_raw_data.gyro.x) / 131.0f - _offset_data.gyro.x;
-                _data.gyro.y      = static_cast<float>(_raw_data.gyro.y) / 131.0f - _offset_data.gyro.y;
-                _data.gyro.z      = static_cast<float>(_raw_data.gyro.z) / 131.0f - _offset_data.gyro.z;
-                _data.temperature = (static_cast<float>(_raw_data.temperature) / 340.0) + 36.53;
+                i2cHandler.async_execute(_transaction);
             }
 
             bool has_new_data()
@@ -101,14 +108,16 @@ namespace bsp
             }
 
         private:
+            hal::i2c::AbstractHandler &i2cHandler;
+
             uint8_t buffer[14];
             IMURawData _raw_data;
             IMUData _data;
             IMUData _offset_data                  = {};
             hal::i2c::I2CTransaction _transaction = {
                 .type          = hal::i2c::TransactionType::ReadMem,
-                .dev_addr      = static_cast<uint16_t>(MPU6050Reg::ADDRESS),
-                .mem_addr      = static_cast<uint16_t>(MPU6050Reg::ACCEL_XOUT_H),
+                .dev_addr      = ADDRESS,
+                .mem_addr      = ACCEL_XOUT_H,
                 .mem_addr_size = 1,
                 .data_ptr      = buffer,
                 .size          = 14,
@@ -116,6 +125,17 @@ namespace bsp
                 .user_callback = transaction_callback,
             };
             volatile bool _new_data_flag = false;
+
+            void calculate_data()
+            {
+                _data.accel.x     = static_cast<float>(_raw_data.accel.x) / 16384.0f - _offset_data.accel.x;
+                _data.accel.y     = static_cast<float>(_raw_data.accel.y) / 16384.0f - _offset_data.accel.y;
+                _data.accel.z     = static_cast<float>(_raw_data.accel.z) / 16384.0f - _offset_data.accel.z;
+                _data.gyro.x      = static_cast<float>(_raw_data.gyro.x) / 131.0f - _offset_data.gyro.x;
+                _data.gyro.y      = static_cast<float>(_raw_data.gyro.y) / 131.0f - _offset_data.gyro.y;
+                _data.gyro.z      = static_cast<float>(_raw_data.gyro.z) / 131.0f - _offset_data.gyro.z;
+                _data.temperature = (static_cast<float>(_raw_data.temperature) / 340.0) + 36.53;
+            }
 
             static void transaction_callback(hal::i2c::I2CTransaction *transaction)
             {
@@ -127,6 +147,8 @@ namespace bsp
                 instance->_raw_data.gyro.x      = (int16_t)(transaction->data_ptr[8] << 8 | transaction->data_ptr[9]);
                 instance->_raw_data.gyro.y      = (int16_t)(transaction->data_ptr[10] << 8 | transaction->data_ptr[11]);
                 instance->_raw_data.gyro.z      = (int16_t)(transaction->data_ptr[12] << 8 | transaction->data_ptr[13]);
+
+                instance->calculate_data();
 
                 instance->_new_data_flag = true;
             }

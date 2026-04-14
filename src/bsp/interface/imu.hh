@@ -39,9 +39,6 @@ namespace bsp
             // 初始化函数，返回 hal::Status
             { imu.init() } -> std::same_as<hal::Status>;
 
-            // 提供给 I2C Handler 使用的 Transaction 结构
-            { imu.transaction() } -> std::same_as<hal::i2c::I2CTransaction>;
-
             // 数据获取接口
             { imu.data() } -> std::same_as<IMUData>;
             { imu.raw_data() } -> std::same_as<IMURawData>;
