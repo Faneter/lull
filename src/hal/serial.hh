@@ -20,7 +20,7 @@ namespace hal
 
         // Send
         template <Mode mode>
-        static inline Status send(uint8_t bytes[], uint16_t size,
+        static inline Status send(const uint8_t bytes[], uint16_t size,
                                   uint32_t timeout = 50)
         {
             if constexpr (mode == Mode::Normal)
@@ -38,6 +38,20 @@ namespace hal
                                   uint32_t timeout = 50)
         {
             return send<mode>(bytes, length, timeout);
+        }
+        /**
+         * @brief 直接向串口发送字符串
+         *
+         * @tparam mode 发送类型:阻塞/中断/DMA
+         * @tparam length 在编译期自动推导数组的长度
+         * @param timeout 发送超时时间
+         * @return Status 发送状态
+         */
+        template <Mode mode, size_t length>
+        static inline Status send(const char (&str)[length], uint32_t timeout = 50)
+        {
+            // 将 char 数组引用强转为 uint8_t 指针，length - 1 可用于剔除结尾的 '\0'（根据业务需求决定）
+            return send<mode>(reinterpret_cast<const uint8_t *>(str), length - 1, timeout);
         }
 
         // Receive
@@ -94,7 +108,7 @@ namespace hal
         template <Mode mode>
         static inline void hello_world()
         {
-            send<mode>((uint8_t *)&"Hello World!\n", 14);
+            send<mode>("Hello World!\n");
         }
     };
 
