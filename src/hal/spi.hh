@@ -203,49 +203,19 @@ namespace hal
             }
 
             void callback_tx(SPIHandler hspi) override
-            {
-                if (hspi != spi_bus::handle()) return;
-
-                finish();
-
-                if (_on_tx_complete)
-                    _on_tx_complete();
-
-                // 继续下一个任务
-                schedule_next();
-            }
+            { complete(hspi); }
 
             void callback_rx(SPIHandler hspi) override
-            {
-                if (hspi != spi_bus::handle()) return;
-
-                finish();
-
-                if (_on_rx_complete)
-                    _on_rx_complete();
-
-                // 继续下一个任务
-                schedule_next();
-            }
+            { complete(hspi); }
 
             void callback_txrx(SPIHandler hspi) override
-            {
-                if (hspi != spi_bus::handle()) return;
-
-                finish();
-
-                if (_on_txrx_complete)
-                    _on_txrx_complete();
-
-                // 继续下一个任务
-                schedule_next();
-            }
+            { complete(hspi); }
 
             /**
              * @brief 错误回调
              *
              * 注意：这里只上报错误码，不主动出队。
-             * HAL 在部分错误路径上会先调 ErrorCallback 再调 TxCplt/RxCplt，
+             * HAL 在部分错误路径上会先调 ErrorCallback 再调完成回调，
              * 若在此处 pop 会导致完成回调二次出队、队列错位。
              * 需要恢复总线时请在 _on_error 里处理（DeInit / 重新 Init）。
              */
@@ -258,19 +228,57 @@ namespace hal
 
         private:
             /**
-             * @brief 结束队首任务：先拷贝再出队，避免 pop 之后继续引用已出队元素
+             * @brief 结束队首任务，并按「任务自身的类型」派发对应的完成回调
+             *
+             * 这里刻意不看是哪个 HAL 回调被触发：HAL 在「主机 + 2 线」模式下会把
+             * Receive 系列接口整体转发给 TransmitReceive 实现
+             * （stm32f1xx_hal_spi.c:973 / 1527 / 1811），完成时触发的是
+             * HAL_SPI_TxRxCpltCallback 而不是 HAL_SPI_RxCpltCallback，
+             * 若按回调来源派发，_on_rx_complete 将永远不会被调用。
+             *
+             * 同时对空队列直接返回：HAL 可能先给 ErrorCallback、再给完成回调，
+             * 第二个回调不应再次出队。
              */
-            void finish()
+            void complete(SPIHandler hspi)
             {
-                if (queue.empty()) return;
+                if (hspi != spi_bus::handle()) return;
+
+                TransactionType type = TransactionType::Transmit;
+
+                if (finish(type)) {
+                    if (type == TransactionType::Transmit) {
+                        if (_on_tx_complete) _on_tx_complete();
+                    } else if (type == TransactionType::Receive) {
+                        if (_on_rx_complete) _on_rx_complete();
+                    } else {
+                        if (_on_txrx_complete) _on_txrx_complete();
+                    }
+                }
+
+                // 继续下一个任务
+                schedule_next();
+            }
+
+            /**
+             * @brief 结束队首任务：先拷贝再出队，避免 pop 之后继续引用已出队元素
+             *
+             * @param type 输出参数，本次真正完成的任务类型
+             * @return 队列非空（即确实完成了一个任务）返回 true
+             */
+            bool finish(TransactionType &type)
+            {
+                if (queue.empty()) return false;
 
                 SPITransaction task = queue.front();
                 queue.pop();
 
                 is_busy = false;
+                type    = task.type;
 
                 if (task.user_callback)
                     task.user_callback(&task);
+
+                return true;
             }
         };
     } // namespace spi
