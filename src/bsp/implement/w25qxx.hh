@@ -73,7 +73,7 @@ namespace bsp
            flash.erase_sector(0x000000);
            flash.write(0x000000, data, sizeof(data));
            flash.read(0x000000, buffer, sizeof(buffer));
-         * @endcode
+           @endcode
          */
         template <typename spi_bus, typename cs_pin>
             requires hal::spi::HasSPIHandleConcept<spi_bus> && hal::gpio::GpioConcept<cs_pin>
