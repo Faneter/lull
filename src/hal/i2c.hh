@@ -172,6 +172,10 @@ namespace hal
                     status = i2c_bus::template transmit<mode>(task.dev_addr, task.data_ptr, task.size);
 
                 if (status != Status::Ready) {
+                    // 注意：下发失败的帧会被直接丢弃，而且不会回调 user_callback，
+                    //       调用方无从得知（上层会以为这一帧发出去了）。
+                    //       需要感知失败请挂 _on_error，或在业务侧自己看 HAL 状态
+                    //       （例如 HAL_I2C_GetError / hi2c.State）。
                     is_busy = false;
                     queue.pop();
                     schedule_next();
@@ -184,15 +188,7 @@ namespace hal
             {
                 if (hi2c != i2c_bus::handle()) return;
 
-                I2CTransaction &task = queue.front(); // 任务完成
-                queue.pop();
-
-                is_busy = false;
-
-                // 向你的 component 层分发数据
-                if (task.user_callback)
-                    task.user_callback(&task);
-                if (_on_tx_complete)
+                if (finish() && _on_tx_complete)
                     _on_tx_complete();
 
                 // 继续下一个任务
@@ -203,16 +199,7 @@ namespace hal
             {
                 if (hi2c != i2c_bus::handle()) return;
 
-                I2CTransaction &task = queue.front(); // 任务完成
-                queue.pop();
-
-                is_busy = false;
-
-                // 向你的 component 层分发数据
-                if (task.user_callback)
-                    task.user_callback(&task);
-
-                if (_on_rx_complete)
+                if (finish() && _on_rx_complete)
                     _on_rx_complete();
 
                 // 继续下一个任务
@@ -224,6 +211,36 @@ namespace hal
                 if (hi2c == i2c_bus::handle() && _on_error) {
                     _on_error(HAL_I2C_GetError(hi2c));
                 }
+            }
+
+        private:
+            /**
+             * @brief 结束队首任务：先拷贝再出队，避免 pop 之后继续引用已出队元素
+             *
+             * 原来的写法是取 queue.front() 的引用、pop() 之后再通过该引用调用
+             * user_callback —— 那已经是一个生命期结束的对象。因为 I2CTransaction
+             * 是平凡类型、出队并不会擦除内存，-O0 下侥幸能跑；优化一开就可能出错。
+             * 这里改成先拷到局部变量再出队。
+             *
+             * 另外先判空再取 front()：HAL 在部分错误路径上会先给 ErrorCallback、
+             * 再给完成回调，第二个回调不应该在一个已经空了的队列上取 front()。
+             *
+             * @return 队列非空（即确实完成了一个任务）返回 true
+             */
+            bool finish()
+            {
+                if (queue.empty()) return false;
+
+                I2CTransaction task = queue.front();
+                queue.pop();
+
+                is_busy = false;
+
+                // 向你的 component 层分发数据
+                if (task.user_callback)
+                    task.user_callback(&task);
+
+                return true;
             }
         };
     } // namespace i2c
