@@ -119,12 +119,12 @@ namespace hal
         };
 
         struct AbstractHandler {
-            virtual Status execute(SPITransaction transaction)     = 0;
-            virtual void async_execute(SPITransaction transaction) = 0;
-            virtual void callback_tx(SPIHandler hspi)              = 0;
-            virtual void callback_rx(SPIHandler hspi)              = 0;
-            virtual void callback_txrx(SPIHandler hspi)            = 0;
-            virtual void callback_error(SPIHandler hspi)           = 0;
+            virtual Status execute(SPITransaction transaction)       = 0;
+            virtual Status async_execute(SPITransaction transaction) = 0;
+            virtual void callback_tx(SPIHandler hspi)                = 0;
+            virtual void callback_rx(SPIHandler hspi)                = 0;
+            virtual void callback_txrx(SPIHandler hspi)              = 0;
+            virtual void callback_error(SPIHandler hspi)             = 0;
         };
 
         /**
@@ -141,6 +141,21 @@ namespace hal
             void (*_on_rx_complete)()              = nullptr;
             void (*_on_txrx_complete)()            = nullptr;
             void (*_on_error)(uint32_t error_code) = nullptr;
+
+            /**
+             * @brief 任务下发失败、被丢弃时的回调
+             *
+             * schedule_next() 在 HAL 返回非 Ready（典型是 HAL_BUSY：总线正忙、
+             * 或 hspi.State 还停在 BUSY）时会直接丢弃这一帧，而被丢弃任务的
+             * user_callback 不会被触发。挂上这个钩子才能知道「有一帧根本没发出去」。
+             *
+             * 注意：它可能在中断上下文里被调用（传输完成回调会继续取下一个任务），
+             *       所以只做轻量操作：置标志、计数，别在里面阻塞或打印。
+             *
+             * @param transaction 被丢弃的任务（局部副本，只在回调期间有效，只读）
+             * @param status      下发失败的原因（Busy / Error / Timeout）
+             */
+            void (*_on_dropped)(const SPITransaction &transaction, Status status) = nullptr;
 
             /**
              * @brief 阻塞式执行一个传输任务（配合 Mode::Normal 使用）
@@ -165,15 +180,21 @@ namespace hal
 
             /**
              * @brief 把任务排入队列并尝试启动（异步，配合 It / Dma 模式使用）
+             *
+             * @return Status  Ready        已立刻开始发送
+             *                 Busy         已入队，会等前面的任务发完自动发（正常情况，
+             *                              不是错误）
+             *                 Error/Timeout 当场下发失败，该任务已被丢弃
              */
-            void async_execute(SPITransaction transaction) override
+            Status async_execute(SPITransaction transaction) override
             {
                 queue.push(transaction);
-                schedule_next(); // 尝试启动
+
+                return schedule_next(); // 尝试启动
             }
 
             /**
-             * @brief 若总线空闲则取出队首任务下发；下发失败的任务直接丢弃并继续下一个
+             * @brief 若总线空闲则取出队首任务下发；下发失败的任务会被丢弃并继续下一个
              */
             Status schedule_next()
             {
@@ -194,8 +215,19 @@ namespace hal
                         task.tx_data_ptr, task.rx_data_ptr, task.size);
 
                 if (status != Status::Ready) {
-                    is_busy = false;
+                    // 下发失败，这一帧发不出去了。
+                    // HAL_BUSY 在 HAL 里的语义是「稍后再试」，但这里为了避免队列
+                    // 无限堆积，选择丢弃并立刻处理下一个。
+                    // 先把它摘出队列再通知：这样即使 _on_dropped 里又调了
+                    // async_execute()，也不会再次拿到这个注定失败的任务。
+                    SPITransaction dropped = queue.front();
                     queue.pop();
+
+                    is_busy = false;
+
+                    if (_on_dropped)
+                        _on_dropped(dropped, status);
+
                     schedule_next();
                 }
 

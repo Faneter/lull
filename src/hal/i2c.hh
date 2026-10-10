@@ -102,11 +102,11 @@ namespace hal
         };
 
         struct AbstractHandler {
-            virtual Status execute(I2CTransaction transaction)     = 0;
-            virtual void async_execute(I2CTransaction transaction) = 0;
-            virtual void callback_tx(I2CHandler hi2c)              = 0;
-            virtual void callback_rx(I2CHandler hi2c)              = 0;
-            virtual void callback_error(I2CHandler hi2c)           = 0;
+            virtual Status execute(I2CTransaction transaction)       = 0;
+            virtual Status async_execute(I2CTransaction transaction) = 0;
+            virtual void callback_tx(I2CHandler hi2c)                = 0;
+            virtual void callback_rx(I2CHandler hi2c)                = 0;
+            virtual void callback_error(I2CHandler hi2c)             = 0;
         };
 
         /**
@@ -121,6 +121,21 @@ namespace hal
             void (*_on_tx_complete)()              = nullptr;
             void (*_on_rx_complete)()              = nullptr;
             void (*_on_error)(uint32_t error_code) = nullptr;
+
+            /**
+             * @brief 任务下发失败、被丢弃时的回调
+             *
+             * schedule_next() 在 HAL 返回非 Ready（典型是 HAL_BUSY：总线被占住、
+             * 或 hi2c.State 还停在 BUSY）时会直接丢弃这一帧，而被丢弃任务的
+             * user_callback 不会被触发。挂上这个钩子才能知道「有一帧根本没发出去」。
+             *
+             * 注意：它可能在中断上下文里被调用（传输完成回调会继续取下一个任务），
+             *       所以只做轻量操作：置标志、计数，别在里面阻塞或打印。
+             *
+             * @param transaction 被丢弃的任务（局部副本，只在回调期间有效，只读）
+             * @param status      下发失败的原因（Busy / Error / Timeout）
+             */
+            void (*_on_dropped)(const I2CTransaction &transaction, Status status) = nullptr;
 
             Status execute(I2CTransaction transaction) override
             {
@@ -146,10 +161,19 @@ namespace hal
                 return status;
             }
 
-            void async_execute(I2CTransaction transaction) override
+            /**
+             * @brief 把任务排入队列并尝试启动
+             *
+             * @return Status  Ready        已立刻开始发送
+             *                 Busy         已入队，会等前面的任务发完自动发（正常情况，
+             *                              不是错误）
+             *                 Error/Timeout 当场下发失败，该任务已被丢弃
+             */
+            Status async_execute(I2CTransaction transaction) override
             {
                 queue.push(transaction);
-                schedule_next(); // 尝试启动
+
+                return schedule_next(); // 尝试启动
             }
 
             Status schedule_next()
@@ -172,12 +196,19 @@ namespace hal
                     status = i2c_bus::template transmit<mode>(task.dev_addr, task.data_ptr, task.size);
 
                 if (status != Status::Ready) {
-                    // 注意：下发失败的帧会被直接丢弃，而且不会回调 user_callback，
-                    //       调用方无从得知（上层会以为这一帧发出去了）。
-                    //       需要感知失败请挂 _on_error，或在业务侧自己看 HAL 状态
-                    //       （例如 HAL_I2C_GetError / hi2c.State）。
-                    is_busy = false;
+                    // 下发失败，这一帧发不出去了。
+                    // HAL_BUSY 在 HAL 里的语义是「稍后再试」，但这里为了避免队列
+                    // 无限堆积，选择丢弃并立刻处理下一个。
+                    // 先把它摘出队列再通知：这样即使 _on_dropped 里又调了
+                    // async_execute()，也不会再次拿到这个注定失败的任务。
+                    I2CTransaction dropped = queue.front();
                     queue.pop();
+
+                    is_busy = false;
+
+                    if (_on_dropped)
+                        _on_dropped(dropped, status);
+
                     schedule_next();
                 }
 
