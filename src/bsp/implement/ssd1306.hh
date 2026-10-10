@@ -50,12 +50,24 @@ namespace bsp::screen
             setColumnAddressScope(0, Width - 1);      // 0 到 127
             setPageAddressScope(0, (Height / 8) - 1); // 0 到 7 (针对 64 线屏幕)
 
+            // 先把缓冲区清零再下发。
+            //
+            // 原来这里直接写 buffer，而 buffer 是未初始化的成员数组（内容不确定），
+            // 并且用的还是 write_mem 的默认 50ms 超时：1024+2 字节在 100kHz 下要约 92ms，
+            // 必然超时。而 STM32F1 的 HAL 在超时返回时不会补 STOP，总线从此停在 BUSY，
+            // 之后所有传输（包括每一帧）都返回 HAL_BUSY —— 表现就是屏幕一直停在这一帧。
+            //
+            // 所以这里先 clear() 把内容确定下来，并把超时显式给足
+            // （100kHz 下约 92ms，留 10 倍余量）。
+            clear();
+
             i2c_bus::template write_mem<hal::Mode::Normal>(
                 Address,
                 0x40, // 数据寄存器
                 1,
                 buffer,
-                Buffer_Size);
+                Buffer_Size,
+                1000); // 超时 (ms)
 
             write_command(0x40); //--set start line address - CHECK
 
