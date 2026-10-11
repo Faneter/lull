@@ -3,7 +3,13 @@
 #include "interface.hh"
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
+#include <type_traits>
 #include <utility>
+
+#include <etl/format_spec.h>
+#include <etl/string.h>
+#include <etl/to_string.h>
 
 #ifdef HAL_UART_MODULE_ENABLED
 
@@ -134,6 +140,86 @@ namespace hal
         static inline void hello_world()
         {
             send<mode>("Hello World!\n");
+        }
+
+        // Print
+        /**
+         * @brief 把若干参数依次格式化后一次性发送（ETL 版 "printf"）
+         *
+         * 不使用变参、不依赖 printf/vsnprintf：每个参数都交给 etl::to_string 处理。
+         * 整数格式化（进制 / 宽度 / 填充 / 大小写）的代码在用到 etl::string 的工程里
+         * 本来就会链接，所以额外 flash 开销接近 0；而且参数类型是编译期检查的，
+         * 不存在 printf 那种 "%d" 配 float 的错配。
+         *
+         * 传一个 etl::format_spec 可以改变它**后面**那些值的格式（类似 iostream 的操纵器）：
+         * @code
+           // 十进制：ID: 239
+           hal::Serial<&huart1>::print("ID: ", 239, "\n");
+
+           // 两位大写十六进制：ID: EF
+           hal::Serial<&huart1>::print("ID: ",
+                                       etl::format_spec().hex().width(2).fill('0').upper_case(true),
+                                       0xEF, "\n");
+         * @endcode
+         *
+         * @tparam mode     发送模式，默认 Normal（阻塞、整行一次发完，不会被 HAL_BUSY 丢掉）。
+         *                  用 It / Dma 时请自行保证不重入，否则上一笔没发完会静默丢数据
+         * @tparam Capacity 行缓冲区容量（栈上分配 Capacity 字节）；超出部分截断
+         * @param args      任意个可格式化参数：整数 / 浮点 / bool / C 字符串 /
+         *                  etl 字符串 / etl::string_view / etl::format_spec
+         * @return Status   发送状态；没有任何内容时不发送，直接返回 Ready
+         *
+         * @note 单个参数格式化后的长度上限为 32 字符（FieldCapacity），超出会截断
+         */
+        template <Mode mode = Mode::Normal, size_t Capacity = 128, typename... Args>
+        static inline Status print(Args &&...args)
+        {
+            etl::string<Capacity> line;
+            etl::format_spec format;
+
+            (append_argument(line, format, std::forward<Args>(args)), ...);
+
+            if (line.empty())
+                return Status::Ready;
+
+            return send<mode>(reinterpret_cast<const uint8_t *>(line.c_str()),
+                              static_cast<uint16_t>(line.size()), 100);
+        }
+
+    private:
+        /** 单个参数格式化后的长度上限：64 位整数（20 位）加符号和填充都够 */
+        static constexpr size_t FieldCapacity = 32;
+
+        /**
+         * @brief 把一个参数追加到行缓冲区
+         *
+         * 分四种情况：format_spec 当"操纵器"、char 按字符、C 字符串按文本，
+         * 其余（整数 / 浮点 / bool / etl 字符串 / string_view）交给 etl::to_string。
+         */
+        template <size_t Capacity, typename T>
+        static inline void append_argument(etl::string<Capacity> &line,
+                                           etl::format_spec &format, T &&value)
+        {
+            using value_type = std::decay_t<T>;
+
+            if constexpr (std::same_as<value_type, etl::format_spec>) {
+                format = value;
+            } else if constexpr (std::same_as<value_type, char>) {
+                if (!line.full())
+                    line.push_back(value);
+            } else if constexpr (std::convertible_to<value_type, const char *>) {
+                const char *text = value;
+                while (*text != '\0' && !line.full())
+                    line.push_back(*text++);
+            } else {
+                // 先格式化到定长小缓冲，再逐字符拷进行缓冲：
+                // 行缓冲永远不会被越界写（ETL 的断言在 Release 下是关掉的）
+                etl::string<FieldCapacity> field;
+                etl::to_string(value, field, format, false);
+
+                for (size_t i = 0; i < field.size() && !line.full(); ++i)
+                    line.push_back(field[i]);
+            }
         }
     };
 
